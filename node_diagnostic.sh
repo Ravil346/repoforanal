@@ -1,3 +1,371 @@
+
+Разработка конфигов
+/
+У меня развернута панель Remnawave,  к ней подключены ноды в разных локациях, с разными конфигами, развернутых на разных серверах у разных хостеров, следовательно с разными характеристками.
+
+Настроена нода с хоп сервером по инструкции
+https://habr.com/ru/articles/985674/
+
+Всего в среднем онлайн 50 пользователей. Но есть проблема, конфиги скорее вссего плохо настроены. Нормально настроен конфиг в файле Германия_-_панель.json, и он более менее хорошо работает.
+
+Нужно проанализировать наши остальные конфиги на основе нашей базы файлов и теории из документаций. 
+
+Я не прикрепил или не указал какие конфиги проблемные. Если надо, попроси, я их прикреплю.
+
+Также как я понимаю нужны характеристики самих нод, интернет, мощность и тп. для анализа. Если надо, дай команды для получения характеристик, чтобы я тебе их прислал. 
+
+То есть нужно идти пошагово, осмысленно, некоторые вещи мне нужно объяснять по запросу.
+
+Наверное сначала начнем с твоего анализа ситуации и построения плана. Потом будем пошагово идти от анализа до разбора и тестирования конфигов.
+
+Show more
+23:10
+
+Проанализировал конфигурации, выявил ключевые различия, составил диагностический план.
+18s
+
+
+
+
+
+
+
+
+
+Анализ ситуации и план работы
+Спасибо за подробное описание! Давай разберёмся пошагово.
+
+Что я вижу из прикреплённых файлов
+Серверные конфиги (панель/ноды):
+Германия_-_панель.json — работает хорошо (эталон)
+EJX_SMART_панель.json — конкурентный конфиг (для сравнения)
+Клиентские конфиги:
+Конфиг	Transport	Security	Flow	routeOnly	Fragment	Routing
+Германия_-_основной	tcp	reality	vision	false	нет	расширенный
+США_-_основной	tcp	reality	vision	true	нет	минимальный
+Белый_лист_-_при_локдауне	xhttp	reality	нет	true	нет	минимальный
+Atlanta США/Россия/Нидерланды	tcp	reality	vision	false	да	расширенный
+Ключевые наблюдения из вашей базы знаний
+Согласно Knowledge-ConfigAnalysis.md и WhiteListBypassPatterns.md:
+
+routeOnly: false — критично для обхода белых списков
+Fragment outbound — помогает обходить DPI
+domainStrategy: IPIfNonMatch — даёт гибкость (vs AsIs)
+Расширенный routing — push-уведомления, bittorrent → direct
+Что мне нужно для полного анализа
+1. Уточни проблемные конфиги
+Какие именно конфиги работают плохо? Опиши симптомы:
+
+Не подключается вообще?
+Подключается, но медленно?
+Обрывы соединения?
+YouTube/Twitch не работает?
+Работает на Wi-Fi, но не на мобильном (whitelist)?
+2. Структура инфраструктуры
+Помоги понять архитектуру:
+
+Какие ноды у тебя есть?
+- Германия (работает) — какой хостер?
+- США — какой хостер?
+- Россия (хоп-сервер по инструкции Хабра)?
+- Другие?
+3. Характеристики нод
+Выполни на каждой проблемной ноде:
+
+bash
+# Базовая информация о сервере
+echo "=== Система ===" && uname -a && cat /etc/os-release | grep PRETTY_NAME
+
+# CPU и RAM
+echo "=== Ресурсы ===" && nproc && free -h | grep Mem
+
+# Сеть (скорость канала)
+echo "=== Сеть ===" && curl -s https://ipinfo.io && echo ""
+
+# Текущая нагрузка
+echo "=== Нагрузка ===" && uptime && ss -s
+
+# Xray версия и статус
+echo "=== Xray ===" && xray version 2>/dev/null || echo "xray не найден напрямую"
+```
+
+### 4. Текущие серверные конфиги проблемных нод
+
+Если есть доступ — покажи серверные конфиги (inbounds на нодах), особенно для:
+- США (если отличается от Германии)
+- Хоп-сервер (Россия)
+
+---
+
+## Предварительный план работы
+```
+Этап 1: Диагностика
+├── 1.1 Сбор информации о проблемных конфигах
+├── 1.2 Характеристики нод
+└── 1.3 Сравнение серверных конфигов
+
+Этап 2: Анализ
+├── 2.1 Сравнение с эталоном (Германия_-_панель.json)
+├── 2.2 Выявление отличий от успешных конфигов конкурентов
+└── 2.3 Проверка соответствия best practices из документации
+
+Этап 3: Исправление
+├── 3.1 Создание исправленных серверных конфигов
+├── 3.2 Создание оптимизированных клиентских конфигов
+└── 3.3 Тестирование
+
+Этап 4: Документирование
+└── 4.1 Обновление базы знаний с выводами
+Первый шаг
+Ответь на вопросы:
+
+Какие конкретно конфиги/ноды проблемные? (название + симптомы)
+Это проблемы на клиенте или на сервере?
+Клиентские конфиги из проекта — это то, что генерирует RemnaWave для пользователей?
+Или это твои тестовые конфиги?
+Хоп-сервер по инструкции Хабра — он связан с какой нодой? Это отдельная схема или часть основной инфраструктуры?
+После этого я смогу дать конкретный анализ и рекомендации.
+
+хорошо, а можешь написать скрипт для последовательной проверки характеристик сервера, нужное уточнение, некоторых программ может быть не установлено, если выйдет ошибка о том, что данной нужной программы нет, то нужно установить ее и запустить нужную команду, скрипт должен выводить нужные характеристики  разом, чтобы я их скопировал и скинул тебе, 
+
+и кстати на некоторых нодах я менял настройки сервера связанные с brr и пропускной способностью, вроде что то с конфигами делал, это тоже проверить желательно с помощью скрипта
+
+на нодах ubuntu 24.04
+
+файрвола на нодах нет
+
+01:11
+
+Спроектировал комплексный диагностический скрипт для Ubuntu серверов.
+
+
+
+Создам комплексный диагностический скрипт для твоих нод.
+
+
+4 steps
+
+Presented file
+
+Подготовился предоставить пользователю инструкции по использованию.
+
+Скрипт готов
+Скрипт проверяет:
+
+Раздел	Что проверяется
+Система	OS, kernel, uptime
+Ресурсы	CPU, RAM, диск, нагрузка
+Сеть	Внешний IP, геолокация, провайдер, порты
+BBR	Текущий алгоритм, доступные, модуль tcp_bbr
+Буферы TCP	rmem/wmem max/default, tcp_rmem/wmem, backlog
+Sysctl	Все кастомные настройки из /etc/sysctl.conf и /etc/sysctl.d/
+Xray	Версия, процессы, Docker контейнеры, сервисы
+Конфиг Xray	Inbounds, outbounds, routing, sniffing
+Нагрузка	Top процессы по CPU/RAM
+Логи	Последние ошибки
+Рекомендации	Автоматический анализ проблем
+Как использовать
+Загрузить и запустить на ноде:
+bash
+# Вариант 1: Скачать скрипт (если есть curl)
+curl -sL https://raw.githubusercontent.com/YOUR_REPO/node_diagnostic.sh -o /tmp/diag.sh
+
+# Вариант 2: Создать файл вручную
+nano /tmp/diag.sh
+# Вставить содержимое скрипта, сохранить
+
+# Запустить
+chmod +x /tmp/diag.sh
+sudo /tmp/diag.sh 2>&1 | tee /tmp/diag_output.txt
+
+# Скопировать вывод
+cat /tmp/diag_output.txt
+Или одной командой (вставить скрипт через stdin):
+bash
+sudo bash -c 'curl -sL "URL_СКРИПТА" | bash' 2>&1 | tee /tmp/diag.txt
+Что делать с результатом
+Запусти скрипт на каждой проблемной ноде
+Скопируй весь вывод (он отформатирован для удобного чтения)
+Скинь мне — я проанализирую:
+Настройки BBR и буферов
+Конфигурацию Xray
+Сравню с эталоном (Германия)
+Дам конкретные рекомендации
+Пока скрипт работает — ответь на вопросы
+Чтобы я мог сразу дать полезный анализ:
+
+Сколько у тебя нод всего? (примерный список: страна + хостер)
+Какие симптомы на проблемных нодах?
+Медленно?
+Обрывы?
+Не подключается?
+YouTube не работает?
+Хоп-сервер (по инструкции Хабра) — это для обхода whitelist на мобильном интернете в РФ? Он отдельно или связан с основной инфраструктурой?
+Node diagnostic
+SH 
+если ты хочешь через скрипт првоерить xray, то xray запущен в докере в контейнере под именем remnanode
+
+01:15
+
+Переработал скрипт для проверки Xray в Docker контейнере remnanode.
+
+
+Отлично, это важное уточнение! Обновлю скрипт для работы с Docker контейнером remnanode.
+
+
+8 steps
+
+Presented file
+
+Подготовился объяснить изменения и инструкции по использованию скрипта.
+
+Обновил скрипт для работы с Docker контейнером remnanode.
+
+Что добавилось для Docker
+Проверка	Описание
+Статус контейнера	Status, время запуска, количество рестартов
+Xray версия	Выполняется внутри контейнера
+Ресурсы контейнера	CPU%, RAM, Network I/O, Block I/O
+Порты и volumes	Проброшенные порты, примонтированные директории
+Конфиг внутри контейнера	Поиск и вывод полного конфига
+Логи контейнера	Последние 30 строк + фильтр ошибок
+Как запустить
+bash
+# Загрузить скрипт на сервер (вариант 1 - через cat)
+cat > /tmp/diag.sh << 'СКРИПТ'
+# Здесь вставить содержимое скрипта
+СКРИПТ
+
+# Или вариант 2 - скачать файл и загрузить через scp/sftp
+
+# Запустить
+chmod +x /tmp/diag.sh
+sudo /tmp/diag.sh 2>&1 | tee /tmp/node_diag.txt
+
+# Скопировать результат
+cat /tmp/node_diag.txt
+```
+
+---
+
+## Важный момент
+
+Скрипт выведет **полный конфиг Xray** в секции 7 между метками:
+```
+НАЧАЛО_КОНФИГА
+{...json...}
+КОНЕЦ_КОНФИГА
+Это нужно для детального анализа настроек inbounds, routing, sniffing и т.д.
+
+Когда пришлёшь результаты
+Мне понадобится понять:
+
+Какая это нода? (страна, назначение — основная/хоп/резервная)
+Какие проблемы наблюдаются? (симптомы)
+Это единственная нода с такими проблемами или несколько?
+Можешь запустить скрипт сначала на одной проблемной ноде — разберём её, а потом перейдём к остальным.
+
+Node diagnostic
+SH 
+https://github.com/Ravil346/repoforanal/blob/main/node_diagnostic.sh
+а я смогу скачать скрипт из этого репозитория с помщью команды?
+
+01:21
+
+Разобрал способ скачивания скрипта через raw URL GitHub.
+
+
+
+
+Да! Используй raw URL от GitHub:
+
+bash
+# Скачать и сразу запустить
+curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/node_diagnostic.sh | sudo bash 2>&1 | tee /tmp/diag.txt
+Или если хочешь сначала скачать, проверить, потом запустить:
+
+bash
+# Скачать
+curl -sLo /tmp/diag.sh https://raw.githubusercontent.com/Ravil346/repoforanal/main/node_diagnostic.sh
+
+# Посмотреть (опционально)
+less /tmp/diag.sh
+
+# Сделать исполняемым и запустить
+chmod +x /tmp/diag.sh
+sudo /tmp/diag.sh 2>&1 | tee /tmp/diag.txt
+
+# Скопировать результат
+cat /tmp/diag.txt
+Ключевой момент — использовать raw.githubusercontent.com вместо github.com, иначе скачается HTML страница, а не сам скрипт.
+
+а как я понимаю, ремнавейв отправляет и устанавливает конфиг из профиля на ноду? если да, то можно в скрипте выводить конфиг профиля для ноды
+
+01:34
+
+Проанализировал архитектуру RemnaWave и способы извлечения конфигов нод.
+
+
+
+
+
+
+
+
+
+Да, ты прав! RemnaWave панель отправляет конфигурацию на ноду. Конфиг обычно хранится внутри контейнера remnanode.
+
+Давай дополню скрипт — добавлю более детальный поиск конфига в контейнере:
+
+
+4 steps
+
+Presented file
+
+Обдумал обновление скрипта и способ вывода конфига.
+
+Обновил скрипт! Теперь он делает более детальный анализ конфига RemnaWave.
+
+Что добавилось в секции конфигурации:
+Проверка	Описание
+Структура контейнера	ls -la / внутри remnanode
+Расширенный поиск	Ищет все JSON во всём контейнере
+Детальный разбор Inbounds	Tag, Port, Protocol, Network, Security, Sniffing (routeOnly!)
+Routing анализ	domainStrategy, domainMatcher, количество правил
+Routing Rules	Первые 10 правил в читаемом виде
+Reality Settings	Отдельно выводит настройки Reality
+Policy	Если настроен
+Volumes на хосте	Проверяет примонтированные директории
+Обнови файл в своём репозитории
+Скачай обновлённый файл и запуши в Ravil346/repoforanal:
+
+bash
+# Или просто замени содержимое файла в GitHub через веб-интерфейс
+После обновления репозитория — команда для ноды:
+bash
+curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/node_diagnostic.sh | sudo bash 2>&1 | tee /tmp/diag.txt
+Важно про RemnaWave
+Да, ты прав — RemnaWave панель:
+
+Хранит профиль/шаблон конфигурации для каждой ноды
+Отправляет конфиг на ноду при подключении/обновлении
+Нода (remnanode) применяет конфиг и запускает Xray
+Скрипт теперь выведет полный конфиг, который реально работает на ноде — это именно то, что нужно для анализа.
+
+Если хочешь, можешь также скинуть мне скриншот или экспорт настроек профиля из панели RemnaWave — так я смогу сравнить, что в панели vs что на ноде.
+
+Node diagnostic
+SH 
+
+
+
+
+
+
+Claude is AI and can make mistakes. Please double-check responses.
+Node diagnostic · SH
+Copy
+
 #!/bin/bash
 
 # =============================================================================
@@ -297,83 +665,141 @@ echo ""
 # 7. XRAY КОНФИГУРАЦИЯ (внутри Docker remnanode)
 # =============================================================================
 echo "============================================================================="
-echo "7. XRAY КОНФИГУРАЦИЯ"
+echo "7. XRAY КОНФИГУРАЦИЯ (RemnaWave Node)"
 echo "============================================================================="
 
 if command -v docker &> /dev/null && docker ps -a --format '{{.Names}}' | grep -q "remnanode"; then
     
-    echo "--- Поиск конфигурации внутри контейнера ---"
-    
-    # Ищем конфиг внутри контейнера
-    CONFIG_PATH=$(docker exec remnanode sh -c 'find /etc /var /opt /app -name "*.json" -type f 2>/dev/null | head -5' 2>/dev/null)
-    echo "Найденные JSON файлы в контейнере:"
-    echo "$CONFIG_PATH"
+    echo "--- Структура контейнера remnanode ---"
+    docker exec remnanode ls -la / 2>/dev/null | head -20
     echo ""
     
-    # Пробуем стандартные пути
-    for cfg_path in "/etc/xray/config.json" "/var/lib/xray/config.json" "/app/config.json" "/config.json"; do
+    echo "--- Поиск всех конфигов внутри контейнера ---"
+    # Расширенный поиск - все возможные места
+    ALL_CONFIGS=$(docker exec remnanode sh -c '
+        find / -maxdepth 4 -name "*.json" -type f 2>/dev/null | grep -vE "(node_modules|package)" | head -20
+    ' 2>/dev/null)
+    echo "Найденные JSON файлы:"
+    echo "$ALL_CONFIGS"
+    echo ""
+    
+    # Типичные пути для remnanode
+    REMNANODE_PATHS=(
+        "/var/lib/remnanode/config.json"
+        "/etc/xray/config.json"
+        "/app/config.json"
+        "/config.json"
+        "/data/config.json"
+        "/xray/config.json"
+        "/usr/local/etc/xray/config.json"
+        "/root/config.json"
+    )
+    
+    FOUND_CONFIG=""
+    for cfg_path in "${REMNANODE_PATHS[@]}"; do
         if docker exec remnanode test -f "$cfg_path" 2>/dev/null; then
-            echo "Найден конфиг: $cfg_path"
-            echo ""
-            
-            echo "--- Inbounds (краткая информация) ---"
-            docker exec remnanode cat "$cfg_path" 2>/dev/null | jq -r '.inbounds[]? | "Tag: \(.tag // "no-tag") | Port: \(.port) | Protocol: \(.protocol) | Network: \(.streamSettings?.network // "N/A") | Security: \(.streamSettings?.security // "N/A")"' 2>/dev/null || echo "Не удалось распарсить inbounds"
-            echo ""
-            
-            echo "--- Outbounds (краткая информация) ---"
-            docker exec remnanode cat "$cfg_path" 2>/dev/null | jq -r '.outbounds[]? | "Tag: \(.tag // "no-tag") | Protocol: \(.protocol)"' 2>/dev/null || echo "Не удалось распарсить outbounds"
-            echo ""
-            
-            echo "--- Routing rules count ---"
-            RULES_COUNT=$(docker exec remnanode cat "$cfg_path" 2>/dev/null | jq '.routing.rules | length' 2>/dev/null || echo "0")
-            echo "Количество правил маршрутизации: $RULES_COUNT"
-            echo ""
-            
-            echo "--- Sniffing настройки ---"
-            docker exec remnanode cat "$cfg_path" 2>/dev/null | jq '.inbounds[]? | select(.sniffing != null) | {tag: .tag, sniffing: .sniffing}' 2>/dev/null | head -30 || echo "Sniffing не настроен"
-            echo ""
-            
-            echo "--- DNS настройки ---"
-            docker exec remnanode cat "$cfg_path" 2>/dev/null | jq '.dns // "DNS не настроен"' 2>/dev/null
-            echo ""
-            
-            echo "--- Полный конфиг (для детального анализа) ---"
-            echo "НАЧАЛО_КОНФИГА"
-            docker exec remnanode cat "$cfg_path" 2>/dev/null | jq '.' 2>/dev/null || docker exec remnanode cat "$cfg_path" 2>/dev/null
-            echo "КОНЕЦ_КОНФИГА"
-            echo ""
-            
+            FOUND_CONFIG="$cfg_path"
+            echo "✓ Найден конфиг: $cfg_path"
             break
         fi
     done
     
-    # Если конфиг не найден в стандартных путях, проверяем volumes
-    if [[ -z "$CONFIG_PATH" ]]; then
-        echo "Конфиг не найден в стандартных путях контейнера"
-        echo ""
-        echo "--- Проверка volumes на хосте ---"
-        VOLUMES=$(docker inspect remnanode --format='{{range .Mounts}}{{.Source}}:{{.Destination}}{{"\n"}}{{end}}' 2>/dev/null)
-        echo "$VOLUMES"
-        
-        # Ищем config.json в volumes на хосте
-        for vol in $VOLUMES; do
-            HOST_PATH=$(echo $vol | cut -d: -f1)
-            if [[ -d "$HOST_PATH" ]]; then
-                FOUND=$(find "$HOST_PATH" -name "*.json" -type f 2>/dev/null | head -3)
-                if [[ -n "$FOUND" ]]; then
-                    echo "Найдены JSON файлы в volume $HOST_PATH:"
-                    echo "$FOUND"
-                    for f in $FOUND; do
-                        echo ""
-                        echo "--- Содержимое $f ---"
-                        echo "НАЧАЛО_КОНФИГА"
-                        cat "$f" | jq '.' 2>/dev/null || cat "$f"
-                        echo "КОНЕЦ_КОНФИГА"
-                    done
-                fi
-            fi
-        done
+    # Если не нашли в стандартных путях, берём первый найденный JSON
+    if [[ -z "$FOUND_CONFIG" && -n "$ALL_CONFIGS" ]]; then
+        FOUND_CONFIG=$(echo "$ALL_CONFIGS" | head -1)
+        echo "Используем первый найденный: $FOUND_CONFIG"
     fi
+    
+    if [[ -n "$FOUND_CONFIG" ]]; then
+        echo ""
+        echo "============================================"
+        echo "АНАЛИЗ КОНФИГА: $FOUND_CONFIG"
+        echo "============================================"
+        echo ""
+        
+        # Сохраняем конфиг во временную переменную
+        CONFIG_CONTENT=$(docker exec remnanode cat "$FOUND_CONFIG" 2>/dev/null)
+        
+        echo "--- Inbounds (детально) ---"
+        echo "$CONFIG_CONTENT" | jq -r '
+            .inbounds[]? | 
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Tag: \(.tag // "no-tag")
+Port: \(.port)
+Protocol: \(.protocol)
+Network: \(.streamSettings?.network // "N/A")
+Security: \(.streamSettings?.security // "N/A")
+Sniffing enabled: \(.sniffing?.enabled // false)
+Sniffing routeOnly: \(.sniffing?.routeOnly // "N/A")
+Sniffing destOverride: \(.sniffing?.destOverride // [] | join(", "))"
+        ' 2>/dev/null || echo "Не удалось распарсить inbounds"
+        echo ""
+        
+        echo "--- Outbounds ---"
+        echo "$CONFIG_CONTENT" | jq -r '.outbounds[]? | "Tag: \(.tag // "no-tag") | Protocol: \(.protocol)"' 2>/dev/null || echo "Не удалось распарсить outbounds"
+        echo ""
+        
+        echo "--- Routing ---"
+        echo "DomainStrategy: $(echo "$CONFIG_CONTENT" | jq -r '.routing?.domainStrategy // "не задан"' 2>/dev/null)"
+        echo "DomainMatcher: $(echo "$CONFIG_CONTENT" | jq -r '.routing?.domainMatcher // "не задан"' 2>/dev/null)"
+        RULES_COUNT=$(echo "$CONFIG_CONTENT" | jq '.routing?.rules | length' 2>/dev/null || echo "0")
+        echo "Количество правил: $RULES_COUNT"
+        echo ""
+        
+        echo "--- Routing Rules (первые 10) ---"
+        echo "$CONFIG_CONTENT" | jq -r '.routing?.rules[:10][]? | "[\(.outboundTag // "?")] <- \(.domain // .ip // .protocol // .inboundTag // "other" | tostring | .[0:50])"' 2>/dev/null || echo "Нет правил"
+        echo ""
+        
+        echo "--- DNS ---"
+        echo "$CONFIG_CONTENT" | jq '.dns // "DNS не настроен"' 2>/dev/null
+        echo ""
+        
+        echo "--- Policy ---"
+        echo "$CONFIG_CONTENT" | jq '.policy // "Policy не настроен"' 2>/dev/null
+        echo ""
+        
+        echo "--- Reality Settings (если есть) ---"
+        echo "$CONFIG_CONTENT" | jq '.inbounds[]?.streamSettings?.realitySettings // empty' 2>/dev/null | head -30
+        echo ""
+        
+        echo "============================================"
+        echo "ПОЛНЫЙ КОНФИГ (для детального анализа)"
+        echo "============================================"
+        echo "НАЧАЛО_КОНФИГА"
+        echo "$CONFIG_CONTENT" | jq '.' 2>/dev/null || echo "$CONFIG_CONTENT"
+        echo "КОНЕЦ_КОНФИГА"
+        echo ""
+        
+    else
+        echo "Конфиг не найден внутри контейнера!"
+        echo ""
+    fi
+    
+    # Проверяем volumes на хосте
+    echo "--- Volumes на хосте ---"
+    VOLUMES=$(docker inspect remnanode --format='{{range .Mounts}}{{.Source}} -> {{.Destination}} ({{.Type}}){{"\n"}}{{end}}' 2>/dev/null)
+    echo "$VOLUMES"
+    echo ""
+    
+    # Ищем конфиги в volumes на хосте
+    echo "--- Конфиги в volumes на хосте ---"
+    for vol_line in $(docker inspect remnanode --format='{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' 2>/dev/null); do
+        if [[ -d "$vol_line" ]]; then
+            FOUND_HOST=$(find "$vol_line" -name "*.json" -type f 2>/dev/null)
+            if [[ -n "$FOUND_HOST" ]]; then
+                echo "В $vol_line:"
+                echo "$FOUND_HOST"
+            fi
+        elif [[ -f "$vol_line" ]]; then
+            echo "Файл: $vol_line"
+        fi
+    done
+    echo ""
+    
+    # Проверяем переменные окружения для путей конфига
+    echo "--- Переменные окружения (пути и настройки) ---"
+    docker inspect remnanode --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -iE "(config|path|xray|dir|file)" | head -10
+    echo ""
     
 else
     echo "Контейнер remnanode не найден или Docker не установлен"
@@ -381,22 +807,7 @@ else
     # Fallback: поиск на хосте
     echo ""
     echo "--- Поиск конфигурации на хосте ---"
-    XRAY_CONFIGS=(
-        "/usr/local/etc/xray/config.json"
-        "/etc/xray/config.json"
-        "/opt/remnawave/config.json"
-        "/var/lib/remnawave/config.json"
-    )
-    
-    for cfg in "${XRAY_CONFIGS[@]}"; do
-        if [[ -f "$cfg" ]]; then
-            echo "Найден конфиг: $cfg"
-            echo "НАЧАЛО_КОНФИГА"
-            cat "$cfg" | jq '.' 2>/dev/null || cat "$cfg"
-            echo "КОНЕЦ_КОНФИГА"
-            break
-        fi
-    done
+    find /etc /opt /var /root -name "*xray*.json" -o -name "*remna*.json" 2>/dev/null | head -10
 fi
 echo ""
 
