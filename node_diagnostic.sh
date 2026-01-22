@@ -297,83 +297,141 @@ echo ""
 # 7. XRAY КОНФИГУРАЦИЯ (внутри Docker remnanode)
 # =============================================================================
 echo "============================================================================="
-echo "7. XRAY КОНФИГУРАЦИЯ"
+echo "7. XRAY КОНФИГУРАЦИЯ (RemnaWave Node)"
 echo "============================================================================="
 
 if command -v docker &> /dev/null && docker ps -a --format '{{.Names}}' | grep -q "remnanode"; then
     
-    echo "--- Поиск конфигурации внутри контейнера ---"
-    
-    # Ищем конфиг внутри контейнера
-    CONFIG_PATH=$(docker exec remnanode sh -c 'find /etc /var /opt /app -name "*.json" -type f 2>/dev/null | head -5' 2>/dev/null)
-    echo "Найденные JSON файлы в контейнере:"
-    echo "$CONFIG_PATH"
+    echo "--- Структура контейнера remnanode ---"
+    docker exec remnanode ls -la / 2>/dev/null | head -20
     echo ""
     
-    # Пробуем стандартные пути
-    for cfg_path in "/etc/xray/config.json" "/var/lib/xray/config.json" "/app/config.json" "/config.json"; do
+    echo "--- Поиск всех конфигов внутри контейнера ---"
+    # Расширенный поиск - все возможные места
+    ALL_CONFIGS=$(docker exec remnanode sh -c '
+        find / -maxdepth 4 -name "*.json" -type f 2>/dev/null | grep -vE "(node_modules|package)" | head -20
+    ' 2>/dev/null)
+    echo "Найденные JSON файлы:"
+    echo "$ALL_CONFIGS"
+    echo ""
+    
+    # Типичные пути для remnanode
+    REMNANODE_PATHS=(
+        "/var/lib/remnanode/config.json"
+        "/etc/xray/config.json"
+        "/app/config.json"
+        "/config.json"
+        "/data/config.json"
+        "/xray/config.json"
+        "/usr/local/etc/xray/config.json"
+        "/root/config.json"
+    )
+    
+    FOUND_CONFIG=""
+    for cfg_path in "${REMNANODE_PATHS[@]}"; do
         if docker exec remnanode test -f "$cfg_path" 2>/dev/null; then
-            echo "Найден конфиг: $cfg_path"
-            echo ""
-            
-            echo "--- Inbounds (краткая информация) ---"
-            docker exec remnanode cat "$cfg_path" 2>/dev/null | jq -r '.inbounds[]? | "Tag: \(.tag // "no-tag") | Port: \(.port) | Protocol: \(.protocol) | Network: \(.streamSettings?.network // "N/A") | Security: \(.streamSettings?.security // "N/A")"' 2>/dev/null || echo "Не удалось распарсить inbounds"
-            echo ""
-            
-            echo "--- Outbounds (краткая информация) ---"
-            docker exec remnanode cat "$cfg_path" 2>/dev/null | jq -r '.outbounds[]? | "Tag: \(.tag // "no-tag") | Protocol: \(.protocol)"' 2>/dev/null || echo "Не удалось распарсить outbounds"
-            echo ""
-            
-            echo "--- Routing rules count ---"
-            RULES_COUNT=$(docker exec remnanode cat "$cfg_path" 2>/dev/null | jq '.routing.rules | length' 2>/dev/null || echo "0")
-            echo "Количество правил маршрутизации: $RULES_COUNT"
-            echo ""
-            
-            echo "--- Sniffing настройки ---"
-            docker exec remnanode cat "$cfg_path" 2>/dev/null | jq '.inbounds[]? | select(.sniffing != null) | {tag: .tag, sniffing: .sniffing}' 2>/dev/null | head -30 || echo "Sniffing не настроен"
-            echo ""
-            
-            echo "--- DNS настройки ---"
-            docker exec remnanode cat "$cfg_path" 2>/dev/null | jq '.dns // "DNS не настроен"' 2>/dev/null
-            echo ""
-            
-            echo "--- Полный конфиг (для детального анализа) ---"
-            echo "НАЧАЛО_КОНФИГА"
-            docker exec remnanode cat "$cfg_path" 2>/dev/null | jq '.' 2>/dev/null || docker exec remnanode cat "$cfg_path" 2>/dev/null
-            echo "КОНЕЦ_КОНФИГА"
-            echo ""
-            
+            FOUND_CONFIG="$cfg_path"
+            echo "✓ Найден конфиг: $cfg_path"
             break
         fi
     done
     
-    # Если конфиг не найден в стандартных путях, проверяем volumes
-    if [[ -z "$CONFIG_PATH" ]]; then
-        echo "Конфиг не найден в стандартных путях контейнера"
-        echo ""
-        echo "--- Проверка volumes на хосте ---"
-        VOLUMES=$(docker inspect remnanode --format='{{range .Mounts}}{{.Source}}:{{.Destination}}{{"\n"}}{{end}}' 2>/dev/null)
-        echo "$VOLUMES"
-        
-        # Ищем config.json в volumes на хосте
-        for vol in $VOLUMES; do
-            HOST_PATH=$(echo $vol | cut -d: -f1)
-            if [[ -d "$HOST_PATH" ]]; then
-                FOUND=$(find "$HOST_PATH" -name "*.json" -type f 2>/dev/null | head -3)
-                if [[ -n "$FOUND" ]]; then
-                    echo "Найдены JSON файлы в volume $HOST_PATH:"
-                    echo "$FOUND"
-                    for f in $FOUND; do
-                        echo ""
-                        echo "--- Содержимое $f ---"
-                        echo "НАЧАЛО_КОНФИГА"
-                        cat "$f" | jq '.' 2>/dev/null || cat "$f"
-                        echo "КОНЕЦ_КОНФИГА"
-                    done
-                fi
-            fi
-        done
+    # Если не нашли в стандартных путях, берём первый найденный JSON
+    if [[ -z "$FOUND_CONFIG" && -n "$ALL_CONFIGS" ]]; then
+        FOUND_CONFIG=$(echo "$ALL_CONFIGS" | head -1)
+        echo "Используем первый найденный: $FOUND_CONFIG"
     fi
+    
+    if [[ -n "$FOUND_CONFIG" ]]; then
+        echo ""
+        echo "============================================"
+        echo "АНАЛИЗ КОНФИГА: $FOUND_CONFIG"
+        echo "============================================"
+        echo ""
+        
+        # Сохраняем конфиг во временную переменную
+        CONFIG_CONTENT=$(docker exec remnanode cat "$FOUND_CONFIG" 2>/dev/null)
+        
+        echo "--- Inbounds (детально) ---"
+        echo "$CONFIG_CONTENT" | jq -r '
+            .inbounds[]? | 
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Tag: \(.tag // "no-tag")
+Port: \(.port)
+Protocol: \(.protocol)
+Network: \(.streamSettings?.network // "N/A")
+Security: \(.streamSettings?.security // "N/A")
+Sniffing enabled: \(.sniffing?.enabled // false)
+Sniffing routeOnly: \(.sniffing?.routeOnly // "N/A")
+Sniffing destOverride: \(.sniffing?.destOverride // [] | join(", "))"
+        ' 2>/dev/null || echo "Не удалось распарсить inbounds"
+        echo ""
+        
+        echo "--- Outbounds ---"
+        echo "$CONFIG_CONTENT" | jq -r '.outbounds[]? | "Tag: \(.tag // "no-tag") | Protocol: \(.protocol)"' 2>/dev/null || echo "Не удалось распарсить outbounds"
+        echo ""
+        
+        echo "--- Routing ---"
+        echo "DomainStrategy: $(echo "$CONFIG_CONTENT" | jq -r '.routing?.domainStrategy // "не задан"' 2>/dev/null)"
+        echo "DomainMatcher: $(echo "$CONFIG_CONTENT" | jq -r '.routing?.domainMatcher // "не задан"' 2>/dev/null)"
+        RULES_COUNT=$(echo "$CONFIG_CONTENT" | jq '.routing?.rules | length' 2>/dev/null || echo "0")
+        echo "Количество правил: $RULES_COUNT"
+        echo ""
+        
+        echo "--- Routing Rules (первые 10) ---"
+        echo "$CONFIG_CONTENT" | jq -r '.routing?.rules[:10][]? | "[\(.outboundTag // "?")] <- \(.domain // .ip // .protocol // .inboundTag // "other" | tostring | .[0:50])"' 2>/dev/null || echo "Нет правил"
+        echo ""
+        
+        echo "--- DNS ---"
+        echo "$CONFIG_CONTENT" | jq '.dns // "DNS не настроен"' 2>/dev/null
+        echo ""
+        
+        echo "--- Policy ---"
+        echo "$CONFIG_CONTENT" | jq '.policy // "Policy не настроен"' 2>/dev/null
+        echo ""
+        
+        echo "--- Reality Settings (если есть) ---"
+        echo "$CONFIG_CONTENT" | jq '.inbounds[]?.streamSettings?.realitySettings // empty' 2>/dev/null | head -30
+        echo ""
+        
+        echo "============================================"
+        echo "ПОЛНЫЙ КОНФИГ (для детального анализа)"
+        echo "============================================"
+        echo "НАЧАЛО_КОНФИГА"
+        echo "$CONFIG_CONTENT" | jq '.' 2>/dev/null || echo "$CONFIG_CONTENT"
+        echo "КОНЕЦ_КОНФИГА"
+        echo ""
+        
+    else
+        echo "Конфиг не найден внутри контейнера!"
+        echo ""
+    fi
+    
+    # Проверяем volumes на хосте
+    echo "--- Volumes на хосте ---"
+    VOLUMES=$(docker inspect remnanode --format='{{range .Mounts}}{{.Source}} -> {{.Destination}} ({{.Type}}){{"\n"}}{{end}}' 2>/dev/null)
+    echo "$VOLUMES"
+    echo ""
+    
+    # Ищем конфиги в volumes на хосте
+    echo "--- Конфиги в volumes на хосте ---"
+    for vol_line in $(docker inspect remnanode --format='{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' 2>/dev/null); do
+        if [[ -d "$vol_line" ]]; then
+            FOUND_HOST=$(find "$vol_line" -name "*.json" -type f 2>/dev/null)
+            if [[ -n "$FOUND_HOST" ]]; then
+                echo "В $vol_line:"
+                echo "$FOUND_HOST"
+            fi
+        elif [[ -f "$vol_line" ]]; then
+            echo "Файл: $vol_line"
+        fi
+    done
+    echo ""
+    
+    # Проверяем переменные окружения для путей конфига
+    echo "--- Переменные окружения (пути и настройки) ---"
+    docker inspect remnanode --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -iE "(config|path|xray|dir|file)" | head -10
+    echo ""
     
 else
     echo "Контейнер remnanode не найден или Docker не установлен"
@@ -381,22 +439,7 @@ else
     # Fallback: поиск на хосте
     echo ""
     echo "--- Поиск конфигурации на хосте ---"
-    XRAY_CONFIGS=(
-        "/usr/local/etc/xray/config.json"
-        "/etc/xray/config.json"
-        "/opt/remnawave/config.json"
-        "/var/lib/remnawave/config.json"
-    )
-    
-    for cfg in "${XRAY_CONFIGS[@]}"; do
-        if [[ -f "$cfg" ]]; then
-            echo "Найден конфиг: $cfg"
-            echo "НАЧАЛО_КОНФИГА"
-            cat "$cfg" | jq '.' 2>/dev/null || cat "$cfg"
-            echo "КОНЕЦ_КОНФИГА"
-            break
-        fi
-    done
+    find /etc /opt /var /root -name "*xray*.json" -o -name "*remna*.json" 2>/dev/null | head -10
 fi
 echo ""
 
