@@ -4,9 +4,9 @@
 
 ## Быстрый запуск
 
-Общий шаблон команды:
+**Скачать и запустить:**
 ```bash
-curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/СКРИПТ.sh | sudo bash
+curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/СКРИПТ.sh -o setup.sh && chmod +x setup.sh && ./setup.sh
 ```
 
 ---
@@ -18,7 +18,7 @@ curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/СКРИП�
 Собирает информацию о системе, сети, Docker, Xray конфиге.
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/node_diagnostic.sh | sudo bash 2>&1 | tee /tmp/diag.txt
+curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/node_diagnostic.sh -o diag.sh && chmod +x diag.sh && ./diag.sh 2>&1 | tee /tmp/diag.txt
 ```
 
 После выполнения скопируй вывод:
@@ -45,16 +45,16 @@ cat /tmp/diag.txt
 
 ```bash
 # Только проверка (ничего не меняет)
-curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/vps-optimization.sh | sudo bash -s -- --check
+curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/vps-optimization.sh -o opt.sh && chmod +x opt.sh && ./opt.sh --check
 
 # Включить BBR
-curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/vps-optimization.sh | sudo bash -s -- --bbr
+curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/vps-optimization.sh -o opt.sh && chmod +x opt.sh && ./opt.sh --bbr
 
 # BBR + sysctl (без swap)
-curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/vps-optimization.sh | sudo bash -s -- --bbr --sysctl
+curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/vps-optimization.sh -o opt.sh && chmod +x opt.sh && ./opt.sh --bbr --sysctl
 
 # Все оптимизации сразу
-curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/vps-optimization.sh | sudo bash -s -- --all
+curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/vps-optimization.sh -o opt.sh && chmod +x opt.sh && ./opt.sh --all
 ```
 
 ---
@@ -65,12 +65,14 @@ curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/vps-optimiz
 
 **Что делает:**
 - SSH порт: 22 → **41022**
-- NODE_PORT: 2222 → **47891** (только для IP панели)
+- APP_PORT: → **47891** (только для IP панели)
 - VPN порт: **443** открыт для всех
-- Всё остальное: закрыто (UFW)
+- Устанавливает UFW если отсутствует
+- Отключает ssh.socket (Ubuntu 22.04+)
+- Выводит финальный отчёт
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/setup_node_security.sh | sudo bash
+curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/setup_node_security.sh -o setup.sh && chmod +x setup.sh && ./setup.sh
 ```
 
 **Ноды:** Германия 2, Нидерланды, США, США 2, Белые списки, Индия, Россия, Южная Корея
@@ -83,12 +85,14 @@ curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/setup_node_
 
 **Что делает:**
 - SSH порт: 22 → **41022**
-- NODE_PORT: 2222 → **47891** (только для IP панели)
+- APP_PORT: → **47891** (только для IP панели)
 - VPN порты: **443** и **8443** открыты для всех
-- Всё остальное: закрыто (UFW)
+- Устанавливает UFW если отсутствует
+- Отключает ssh.socket (Ubuntu 22.04+)
+- Выводит финальный отчёт
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/setup_germany_node.sh | sudo bash
+curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/setup_germany_node.sh -o setup.sh && chmod +x setup.sh && ./setup.sh
 ```
 
 **Нода:** Германия (de.meerguard.net)
@@ -123,7 +127,7 @@ ufw disable
 ### Восстановить SSH
 ```bash
 cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
-systemctl restart sshd
+systemctl restart ssh
 ```
 
 ### Восстановить .env ноды
@@ -141,4 +145,15 @@ cd /opt/remnanode && docker compose down && docker compose up -d
 |----------|----------|
 | IP панели | 91.208.184.247 |
 | SSH порт | 41022 |
-| NODE_PORT | 47891 |
+| APP_PORT | 47891 |
+
+---
+
+## Обработка проблем
+
+Скрипты автоматически обрабатывают:
+- ✅ UFW не установлен → устанавливает
+- ✅ Ubuntu ssh.socket → отключает
+- ✅ Сервис ssh vs sshd → определяет автоматически
+- ✅ IPv4/IPv6 binding → проверяет и перезапускает если нужно
+- ✅ Финальный отчёт → показывает статус всех компонентов

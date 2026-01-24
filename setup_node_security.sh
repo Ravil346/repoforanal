@@ -116,11 +116,13 @@ change_ssh() {
         echo "Port $NEW_SSH_PORT" >> /etc/ssh/sshd_config
     fi
     
-    # Проверяем и отключаем ssh.socket (Ubuntu 22.04+)
-    if systemctl is-active ssh.socket &>/dev/null; then
+    # КРИТИЧНО: Сначала отключаем ssh.socket (Ubuntu 22.04+)
+    # Это нужно сделать ДО перезапуска SSH, иначе будет только IPv6
+    if systemctl list-unit-files | grep -q "ssh.socket"; then
         log_info "Обнаружен ssh.socket, отключаю..."
-        systemctl stop ssh.socket
+        systemctl stop ssh.socket 2>/dev/null || true
         systemctl disable ssh.socket 2>/dev/null || true
+        sleep 1
     fi
     
     # Определяем имя сервиса
@@ -133,30 +135,42 @@ change_ssh() {
         exit 1
     fi
     
-    # Останавливаем SSH
+    # Останавливаем SSH полностью
     systemctl stop $SSH_SERVICE 2>/dev/null || true
     
     # Ждём освобождения порта
-    sleep 2
+    sleep 3
     
     # Включаем и запускаем SSH service
     systemctl enable $SSH_SERVICE 2>/dev/null || true
     systemctl start $SSH_SERVICE
     
-    # Проверяем что SSH слушает на IPv4
+    # Ждём запуска
     sleep 2
+    
+    # Проверяем что SSH слушает на IPv4
     if ss -tlnp | grep -q "0.0.0.0:$NEW_SSH_PORT"; then
         log_ok "SSH слушает на 0.0.0.0:$NEW_SSH_PORT (IPv4)"
     elif ss -tlnp | grep -q "\[::\]:$NEW_SSH_PORT"; then
         log_warn "SSH слушает только на IPv6, пробую перезапустить..."
         systemctl stop $SSH_SERVICE
-        sleep 2
+        sleep 3
         systemctl start $SSH_SERVICE
         sleep 2
+        
         if ss -tlnp | grep -q "0.0.0.0:$NEW_SSH_PORT"; then
             log_ok "SSH теперь слушает на IPv4"
         else
-            log_warn "SSH слушает только на IPv6 - может работать, проверь подключение"
+            # Критическая проверка - не продолжаем если только IPv6
+            log_error "SSH слушает только на IPv6!"
+            log_error "Это опасно - UFW заблокирует соединение."
+            echo ""
+            echo "РУЧНОЕ ИСПРАВЛЕНИЕ:"
+            echo "1. systemctl stop ssh.socket"
+            echo "2. systemctl disable ssh.socket"
+            echo "3. systemctl restart $SSH_SERVICE"
+            echo "4. Запусти скрипт снова"
+            exit 1
         fi
     else
         log_error "SSH не слушает на порту $NEW_SSH_PORT!"
