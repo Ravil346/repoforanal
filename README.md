@@ -99,6 +99,12 @@ curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/setup_germa
 
 ---
 
+### 5 На панели
+
+```
+curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/setup_panel_security.sh -o setup.sh && chmod +x setup.sh && ./setup.sh
+```
+
 ## После настройки безопасности
 
 ### 1. Проверь SSH на новом порту

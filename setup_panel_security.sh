@@ -163,6 +163,9 @@ setup_ufw() {
     # HTTPS для панели и подписок (для всех)
     ufw allow 443/tcp comment 'HTTPS Panel'
     
+    # ВАЖНО: Docker использует FORWARD chain, нужно отдельное правило
+    ufw route allow proto tcp to any port 443 comment 'Docker HTTPS Forward'
+    
     # Включаем
     ufw --force enable
     
