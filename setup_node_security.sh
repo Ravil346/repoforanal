@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # ===========================================
-# НАСТРОЙКА БЕЗОПАСНОСТИ НОДЫ RemnaWave
+# НАСТРОЙКА БЕЗОПАСНОСТИ НОДЫ RemnaWave v2.5+
 # Для всех нод с портом 443
+# Версия 2.0 - работает с docker-compose.yml
 # ===========================================
 
 set -e
@@ -32,33 +33,38 @@ check_root() {
     fi
 }
 
-find_env_file() {
-    log_info "Ищу .env файл ноды..."
+find_compose_file() {
+    log_info "Ищу docker-compose.yml ноды..."
     
-    if [[ -f /opt/remnanode/.env ]]; then
-        ENV_FILE="/opt/remnanode/.env"
-    elif [[ -f /root/remnanode/.env ]]; then
-        ENV_FILE="/root/remnanode/.env"
+    if [[ -f /opt/remnanode/docker-compose.yml ]]; then
+        COMPOSE_FILE="/opt/remnanode/docker-compose.yml"
+        COMPOSE_DIR="/opt/remnanode"
+    elif [[ -f /root/remnanode/docker-compose.yml ]]; then
+        COMPOSE_FILE="/root/remnanode/docker-compose.yml"
+        COMPOSE_DIR="/root/remnanode"
     else
-        log_error "Файл .env не найден в /opt/remnanode/ или /root/remnanode/"
-        echo "Введи полный путь к .env файлу:"
-        read -r ENV_FILE
-        if [[ ! -f "$ENV_FILE" ]]; then
-            log_error "Файл не найден: $ENV_FILE"
+        log_error "Файл docker-compose.yml не найден в /opt/remnanode/ или /root/remnanode/"
+        echo "Введи полный путь к docker-compose.yml:"
+        read -r COMPOSE_FILE
+        if [[ ! -f "$COMPOSE_FILE" ]]; then
+            log_error "Файл не найден: $COMPOSE_FILE"
             exit 1
         fi
+        COMPOSE_DIR="$(dirname "$COMPOSE_FILE")"
     fi
     
-    log_ok "Найден: $ENV_FILE"
+    log_ok "Найден: $COMPOSE_FILE"
     
-    # Проверяем что там APP_PORT
-    if grep -q "^APP_PORT=" "$ENV_FILE"; then
-        CURRENT_NODE_PORT=$(grep "^APP_PORT=" "$ENV_FILE" | cut -d'=' -f2)
-        log_ok "Текущий APP_PORT: $CURRENT_NODE_PORT"
-    else
-        log_error "Переменная APP_PORT не найдена в $ENV_FILE"
+    # Извлекаем NODE_PORT из docker-compose.yml
+    # Формат: - NODE_PORT=47891 или NODE_PORT: 47891
+    CURRENT_NODE_PORT=$(grep -E "NODE_PORT" "$COMPOSE_FILE" | grep -oE '[0-9]+' | head -1)
+    
+    if [[ -z "$CURRENT_NODE_PORT" ]]; then
+        log_error "Переменная NODE_PORT не найдена в $COMPOSE_FILE"
         exit 1
     fi
+    
+    log_ok "Текущий NODE_PORT: $CURRENT_NODE_PORT"
 }
 
 get_current_ssh_port() {
@@ -75,7 +81,7 @@ show_plan() {
     echo "ПЛАН ДЕЙСТВИЙ"
     echo "=========================================="
     echo "1. SSH порт: $CURRENT_SSH_PORT → $NEW_SSH_PORT"
-    echo "2. APP_PORT: $CURRENT_NODE_PORT → $NEW_NODE_PORT (только для $PANEL_IP)"
+    echo "2. NODE_PORT: $CURRENT_NODE_PORT → $NEW_NODE_PORT (только для $PANEL_IP)"
     echo "3. VPN порт: $VPN_PORTS (открыт для всех)"
     echo "4. Всё остальное: закрыто (UFW)"
     echo ""
@@ -117,7 +123,6 @@ change_ssh() {
     fi
     
     # КРИТИЧНО: Сначала отключаем ssh.socket (Ubuntu 22.04+)
-    # Это нужно сделать ДО перезапуска SSH, иначе будет только IPv6
     if systemctl list-unit-files | grep -q "ssh.socket"; then
         log_info "Обнаружен ssh.socket, отключаю..."
         systemctl stop ssh.socket 2>/dev/null || true
@@ -137,15 +142,11 @@ change_ssh() {
     
     # Останавливаем SSH полностью
     systemctl stop $SSH_SERVICE 2>/dev/null || true
-    
-    # Ждём освобождения порта
     sleep 3
     
     # Включаем и запускаем SSH service
     systemctl enable $SSH_SERVICE 2>/dev/null || true
     systemctl start $SSH_SERVICE
-    
-    # Ждём запуска
     sleep 2
     
     # Проверяем что SSH слушает на IPv4
@@ -161,7 +162,6 @@ change_ssh() {
         if ss -tlnp | grep -q "0.0.0.0:$NEW_SSH_PORT"; then
             log_ok "SSH теперь слушает на IPv4"
         else
-            # Критическая проверка - не продолжаем если только IPv6
             log_error "SSH слушает только на IPv6!"
             log_error "Это опасно - UFW заблокирует соединение."
             echo ""
@@ -203,10 +203,8 @@ setup_ufw() {
     # Включаем
     ufw --force enable
     
-    # Удаляем IPv6 правила (не нужны, серверы без глобального IPv6)
+    # Удаляем IPv6 правила
     log_info "Удаляю лишние IPv6 правила..."
-    
-    # Получаем номера IPv6 правил и удаляем с конца
     for i in $(ufw status numbered | grep "(v6)" | awk -F'[][]' '{print $2}' | sort -rn); do
         ufw --force delete $i
     done
@@ -216,19 +214,25 @@ setup_ufw() {
 
 # === НАСТРОЙКА NODE_PORT ===
 change_node_port() {
-    log_info "Меняю APP_PORT в .env..."
+    log_info "Меняю NODE_PORT в docker-compose.yml..."
     
     # Бэкап
-    cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+    cp "$COMPOSE_FILE" "${COMPOSE_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
     
-    # Меняем ТОЛЬКО APP_PORT
-    sed -i "s/^APP_PORT=.*/APP_PORT=$NEW_NODE_PORT/" "$ENV_FILE"
+    # Меняем NODE_PORT (формат: - NODE_PORT=XXXX)
+    sed -i "s/NODE_PORT=$CURRENT_NODE_PORT/NODE_PORT=$NEW_NODE_PORT/" "$COMPOSE_FILE"
     
-    log_ok "APP_PORT изменён на $NEW_NODE_PORT"
+    # Проверяем изменение
+    if grep -q "NODE_PORT=$NEW_NODE_PORT" "$COMPOSE_FILE"; then
+        log_ok "NODE_PORT изменён на $NEW_NODE_PORT"
+    else
+        log_error "Не удалось изменить NODE_PORT!"
+        exit 1
+    fi
     
     # Перезапуск ноды
     log_info "Перезапускаю ноду..."
-    cd "$(dirname "$ENV_FILE")"
+    cd "$COMPOSE_DIR"
     docker compose down && docker compose up -d
     
     log_ok "Нода перезапущена"
@@ -256,12 +260,6 @@ final_report() {
     else
         echo -e "${RED}не слушает!${NC}"
     fi
-    echo -n "Порт $NEW_SSH_PORT (IPv6): "
-    if ss -tlnp | grep -q "\[::\]:$NEW_SSH_PORT"; then
-        echo -e "${GREEN}слушает ✓${NC}"
-    else
-        echo -e "${YELLOW}не слушает${NC}"
-    fi
     echo ""
     
     # UFW статус
@@ -269,10 +267,10 @@ final_report() {
     ufw status numbered
     echo ""
     
-    # APP_PORT
-    echo "=== APP_PORT ==="
-    echo -n "В .env: "
-    grep "^APP_PORT=" "$ENV_FILE"
+    # NODE_PORT
+    echo "=== NODE_PORT ==="
+    echo -n "В docker-compose.yml: "
+    grep "NODE_PORT" "$COMPOSE_FILE" | head -1
     echo ""
     
     # Docker
@@ -293,8 +291,7 @@ final_report() {
     echo "1. Открой НОВУЮ SSH сессию на порту $NEW_SSH_PORT:"
     echo "   ssh -p $NEW_SSH_PORT root@$(hostname -I | awk '{print $1}')"
     echo ""
-    echo "2. Если вход работает — удали старый порт:"
-    echo "   ufw delete allow 22/tcp"
+    echo "2. Если вход работает — старый порт уже закрыт"
     echo ""
     echo "3. В панели RemnaWave измени порт ноды на $NEW_NODE_PORT"
     echo ""
@@ -304,11 +301,11 @@ final_report() {
 
 # === MAIN ===
 clear
-echo "=== НАСТРОЙКА БЕЗОПАСНОСТИ НОДЫ ==="
+echo "=== НАСТРОЙКА БЕЗОПАСНОСТИ НОДЫ (v2.5+) ==="
 echo ""
 
 check_root
-find_env_file
+find_compose_file
 get_current_ssh_port
 show_plan
 install_ufw

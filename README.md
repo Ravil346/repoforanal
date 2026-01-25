@@ -113,7 +113,7 @@ curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/setup_bot_s
 
 ### 7 Проверка версий нод перед обновлением
 ```
-docker inspect remnanode --format='Image: {{.Config.Image}} | Created: {{.Created}} | Version: {{index .Config.Labels "org.opencontainers.image.version"}}'
+curl -sSL https://raw.githubusercontent.com/Ravil346/repoforanal/main/check_remnawave_versions.sh | bash
 ```
 
 ## После настройки безопасности
