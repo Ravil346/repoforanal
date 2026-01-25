@@ -105,6 +105,17 @@ curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/setup_germa
 curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/setup_panel_security.sh -o setup.sh && chmod +x setup.sh && ./setup.sh
 ```
 
+### 6 Для бота
+
+```
+curl -sL https://raw.githubusercontent.com/Ravil346/repoforanal/main/setup_bot_security.sh -o setup.sh && chmod +x setup.sh && ./setup.sh
+```
+
+### 7 Проверка версий нод перед обновлением
+```
+docker inspect remnanode --format='Image: {{.Config.Image}} | Created: {{.Created}} | Version: {{index .Config.Labels "org.opencontainers.image.version"}}'
+```
+
 ## После настройки безопасности
 
 ### 1. Проверь SSH на новом порту
