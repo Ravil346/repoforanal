@@ -8,7 +8,7 @@ AWG_CONFIG_DIR="/etc/amnezia/amneziawg"
 PANEL_PUBLIC_IP="91.208.184.247"
 PANEL_AWG_PORT="51820"
 
-# Обфускация (должны совпадать!)
+# Обфускация (должны совпадать с сервером!)
 JC=4
 JMIN=40
 JMAX=70
@@ -41,7 +41,7 @@ ADMIN_PRIVATE_KEY=$(awg genkey)
 ADMIN_PUBLIC_KEY=$(echo "$ADMIN_PRIVATE_KEY" | awg pubkey)
 
 # Создаём конфиг для админа
-ADMIN_CONFIG="admin-awg.conf"
+ADMIN_CONFIG="/root/admin-awg.conf"
 
 cat > "$ADMIN_CONFIG" << EOF
 [Interface]
@@ -49,7 +49,7 @@ Address = 10.10.0.100/32
 PrivateKey = $ADMIN_PRIVATE_KEY
 DNS = 1.1.1.1
 
-# AmneziaWG обфускация
+# AmneziaWG обфускация (совпадает с сервером)
 Jc = $JC
 Jmin = $JMIN
 Jmax = $JMAX
@@ -68,25 +68,28 @@ AllowedIPs = 10.10.0.0/24
 PersistentKeepalive = 25
 EOF
 
+chmod 600 "$ADMIN_CONFIG"
+
 echo -e "\n${GREEN}Конфиг создан: $ADMIN_CONFIG${NC}"
 echo ""
-echo -e "Публичный ключ админа (для добавления на сервер):"
+echo -e "Публичный ключ админа:"
 echo -e "${YELLOW}$ADMIN_PUBLIC_KEY${NC}"
 echo ""
-echo -e "${RED}Следующие шаги:${NC}"
+echo -e "${RED}ВАЖНО! Выполни следующие шаги:${NC}"
 echo ""
-echo -e "1. Добавь админа на сервер:"
-echo -e "   ${YELLOW}./add-peer.sh admin $ADMIN_PUBLIC_KEY 10.10.0.100${NC}"
+echo -e "1. Добавь админа на сервер (выполни на панели):"
+echo -e "   ${GREEN}./add-peer.sh admin $ADMIN_PUBLIC_KEY 10.10.0.100${NC}"
 echo ""
-echo -e "2. Скопируй файл ${YELLOW}$ADMIN_CONFIG${NC} на свой компьютер"
+echo -e "2. Скопируй файл ${YELLOW}$ADMIN_CONFIG${NC} на свой компьютер:"
+echo -e "   ${GREEN}scp -P 41022 root@$PANEL_PUBLIC_IP:$ADMIN_CONFIG ./admin-awg.conf${NC}"
 echo ""
 echo -e "3. Установи AmneziaVPN клиент:"
-echo -e "   https://amnezia.org/downloads"
+echo -e "   ${GREEN}https://amnezia.org/downloads${NC}"
 echo ""
 echo -e "4. Импортируй конфиг в AmneziaVPN"
 echo ""
-echo -e "5. После подключения панель будет доступна по адресу:"
-echo -e "   ${YELLOW}https://10.10.0.1${NC} или ${YELLOW}http://10.10.0.1:3000${NC}"
+echo -e "5. После подключения панель будет доступна:"
+echo -e "   ${GREEN}https://10.10.0.1${NC}"
 echo ""
 
 # Показываем QR код если qrencode установлен
@@ -96,3 +99,7 @@ if command -v qrencode &> /dev/null; then
 else
     echo -e "Для QR кода установи: ${YELLOW}apt install qrencode${NC}"
 fi
+
+echo ""
+echo -e "${YELLOW}Содержимое конфига:${NC}"
+cat "$ADMIN_CONFIG"

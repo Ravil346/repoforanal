@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # AmneziaWG Server Setup for RemnaWave Panel
-# Запускать на сервере панели
+# Версия 2.0 - исправлена установка PPA
 #
 
 set -e
@@ -12,16 +12,16 @@ AWG_INTERFACE="awg0"
 AWG_ADDRESS="10.10.0.1/24"
 AWG_CONFIG_DIR="/etc/amnezia/amneziawg"
 
-# Обфускация параметры (должны совпадать на всех пирах!)
-JC=4        # Junk packet count
-JMIN=40     # Junk packet minimum size
-JMAX=70     # Junk packet maximum size
-S1=0        # Init packet junk size
-S2=0        # Response packet junk size
-H1=1        # Init packet magic header
-H2=2        # Response packet magic header
-H3=3        # Under load packet magic header
-H4=4        # Transport packet magic header
+# Обфускация (должны совпадать на всех пирах!)
+JC=4
+JMIN=40
+JMAX=70
+S1=0
+S2=0
+H1=1
+H2=2
+H3=3
+H4=4
 
 # Цвета
 RED='\033[0;31m'
@@ -31,6 +31,7 @@ NC='\033[0m'
 
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}  AmneziaWG Server Setup for Panel${NC}"
+echo -e "${GREEN}  Версия 2.0${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 # Проверка root
@@ -40,29 +41,39 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # 1. Установка AmneziaWG
-echo -e "\n${YELLOW}[1/5] Установка AmneziaWG...${NC}"
+echo -e "\n${YELLOW}[1/6] Установка AmneziaWG...${NC}"
 
 if ! command -v awg &> /dev/null; then
-    # Добавляем репозиторий Amnezia
+    echo -e "${YELLOW}Добавляем репозиторий Amnezia (прямой метод)...${NC}"
+    
+    # Добавляем ключ напрямую (обход проблемы с launchpadlib)
+    curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x57290828" | gpg --dearmor -o /usr/share/keyrings/amnezia.gpg
+    
+    # Добавляем репозиторий (focal работает для Ubuntu 24.04)
+    echo "deb [signed-by=/usr/share/keyrings/amnezia.gpg] https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main" | tee /etc/apt/sources.list.d/amnezia.list
+    
+    # Устанавливаем зависимости и AWG
     apt-get update
-    apt-get install -y software-properties-common
-    add-apt-repository -y ppa:amnezia/ppa
-    apt-get update
+    apt-get install -y linux-headers-$(uname -r)
     apt-get install -y amneziawg amneziawg-tools
     
     # Загружаем модуль
-    modprobe amneziawg || {
-        echo -e "${RED}Не удалось загрузить модуль amneziawg${NC}"
-        echo -e "${YELLOW}Попробуем DKMS установку...${NC}"
-        apt-get install -y amneziawg-dkms
-        modprobe amneziawg
-    }
+    modprobe amneziawg
+    
+    echo -e "${GREEN}AmneziaWG установлен${NC}"
 else
     echo -e "${GREEN}AmneziaWG уже установлен${NC}"
+    modprobe amneziawg 2>/dev/null || true
+fi
+
+# Проверка модуля
+if ! lsmod | grep -q amneziawg; then
+    echo -e "${RED}Модуль amneziawg не загружен!${NC}"
+    exit 1
 fi
 
 # 2. Генерация ключей
-echo -e "\n${YELLOW}[2/5] Генерация ключей...${NC}"
+echo -e "\n${YELLOW}[2/6] Генерация ключей...${NC}"
 
 mkdir -p "$AWG_CONFIG_DIR"
 cd "$AWG_CONFIG_DIR"
@@ -79,7 +90,7 @@ PRIVATE_KEY=$(cat privatekey)
 PUBLIC_KEY=$(cat publickey)
 
 # 3. Создание конфига сервера
-echo -e "\n${YELLOW}[3/5] Создание конфигурации...${NC}"
+echo -e "\n${YELLOW}[3/6] Создание конфигурации...${NC}"
 
 cat > "$AWG_CONFIG_DIR/$AWG_INTERFACE.conf" << EOF
 [Interface]
@@ -87,7 +98,7 @@ Address = $AWG_ADDRESS
 ListenPort = $AWG_PORT
 PrivateKey = $PRIVATE_KEY
 
-# AmneziaWG обфускация
+# Обфускация (эти значения должны совпадать на всех пирах!)
 Jc = $JC
 Jmin = $JMIN
 Jmax = $JMAX
@@ -98,37 +109,36 @@ H2 = $H2
 H3 = $H3
 H4 = $H4
 
-# Пиры будут добавляться ниже
-# Используй add-peer.sh для добавления нод
+# Пиры добавляются через add-peer.sh
 
 EOF
 
 chmod 600 "$AWG_CONFIG_DIR/$AWG_INTERFACE.conf"
 
 # 4. Настройка файрвола
-echo -e "\n${YELLOW}[4/5] Настройка файрвола...${NC}"
+echo -e "\n${YELLOW}[4/6] Настройка файрвола...${NC}"
 
-ufw allow ${AWG_PORT}/udp comment "AmneziaWG"
-echo -e "${GREEN}Порт $AWG_PORT/udp открыт${NC}"
+if command -v ufw &> /dev/null; then
+    ufw allow ${AWG_PORT}/udp comment "AmneziaWG" 2>/dev/null || true
+    echo -e "${GREEN}Порт $AWG_PORT/udp открыт${NC}"
+else
+    echo -e "${YELLOW}UFW не установлен, открой порт $AWG_PORT/udp вручную${NC}"
+fi
 
-# 5. Запуск сервиса
-echo -e "\n${YELLOW}[5/5] Запуск AmneziaWG...${NC}"
+# 5. Создание systemd сервиса
+echo -e "\n${YELLOW}[5/6] Настройка автозапуска...${NC}"
 
-# Создаём systemd сервис
 cat > /etc/systemd/system/awg-quick@.service << 'EOF'
 [Unit]
 Description=AmneziaWG via awg-quick(8) for %I
 After=network-online.target nss-lookup.target
 Wants=network-online.target nss-lookup.target
-Documentation=man:awg-quick(8)
-Documentation=man:awg(8)
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/bin/awg-quick up %i
 ExecStop=/usr/bin/awg-quick down %i
-Environment=WG_ENDPOINT_RESOLUTION_RETRIES=infinity
 
 [Install]
 WantedBy=multi-user.target
@@ -136,21 +146,33 @@ EOF
 
 systemctl daemon-reload
 systemctl enable awg-quick@$AWG_INTERFACE
-systemctl start awg-quick@$AWG_INTERFACE || awg-quick up $AWG_INTERFACE
+
+# 6. Запуск
+echo -e "\n${YELLOW}[6/6] Запуск AmneziaWG...${NC}"
+
+# Останавливаем если уже запущен
+awg-quick down $AWG_INTERFACE 2>/dev/null || true
+
+# Запускаем
+awg-quick up $AWG_INTERFACE
 
 echo -e "\n${GREEN}========================================${NC}"
 echo -e "${GREEN}  Установка завершена!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
-echo -e "Публичный ключ сервера:"
+echo -e "Публичный ключ сервера (сохрани!):"
 echo -e "${YELLOW}$PUBLIC_KEY${NC}"
 echo ""
-echo -e "Этот ключ нужен для настройки клиентов (нод)."
-echo -e "Сохрани его!"
+echo -e "Этот ключ нужен для настройки нод и админа."
 echo ""
 echo -e "IP панели в AWG сети: ${YELLOW}10.10.0.1${NC}"
+echo -e "Порт AWG: ${YELLOW}$AWG_PORT/udp${NC}"
 echo ""
 echo -e "Для добавления ноды используй:"
 echo -e "${YELLOW}./add-peer.sh <имя> <публичный_ключ_ноды> <awg_ip>${NC}"
 echo ""
 echo -e "Проверка статуса: ${YELLOW}awg show${NC}"
+echo ""
+
+# Показываем статус
+awg show

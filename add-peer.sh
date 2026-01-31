@@ -12,27 +12,51 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-if [[ $# -lt 3 ]]; then
+# Справка по IP адресам
+show_help() {
     echo "Использование: $0 <имя_ноды> <публичный_ключ> <awg_ip>"
     echo ""
+    echo "AWG IP адреса:"
+    echo "  10.10.0.2   - Node DE (Германия)"
+    echo "  10.10.0.3   - Node NL (Нидерланды)"
+    echo "  10.10.0.4   - Node US (США)"
+    echo "  10.10.0.5   - Node RU (Россия)"
+    echo "  10.10.0.6   - Node IN (Индия)"
+    echo "  10.10.0.7   - Node KR (Корея)"
+    echo "  10.10.0.100 - Admin"
+    echo ""
     echo "Примеры:"
-    echo "  $0 node-de ПУБЛИЧНЫЙ_КЛЮЧ_НОДЫ 10.10.0.2"
-    echo "  $0 node-nl ПУБЛИЧНЫЙ_КЛЮЧ_НОДЫ 10.10.0.3"
-    echo "  $0 node-us ПУБЛИЧНЫЙ_КЛЮЧ_НОДЫ 10.10.0.4"
-    echo "  $0 node-ru ПУБЛИЧНЫЙ_КЛЮЧ_НОДЫ 10.10.0.5"
-    echo "  $0 admin ПУБЛИЧНЫЙ_КЛЮЧ_АДМИНА 10.10.0.100"
+    echo "  $0 node-de ABC123...XYZ= 10.10.0.2"
+    echo "  $0 node-nl ABC123...XYZ= 10.10.0.3"
+    echo "  $0 admin   ABC123...XYZ= 10.10.0.100"
     exit 1
+}
+
+if [[ $# -lt 3 ]]; then
+    show_help
 fi
 
 NODE_NAME=$1
 PUBLIC_KEY=$2
 AWG_IP=$3
 
+# Проверка что конфиг существует
+if [[ ! -f "$AWG_CONFIG" ]]; then
+    echo -e "${RED}Конфиг $AWG_CONFIG не найден!${NC}"
+    echo -e "Сначала запусти panel-awg-setup.sh"
+    exit 1
+fi
+
 echo -e "${YELLOW}Добавляю пир: $NODE_NAME ($AWG_IP)${NC}"
 
 # Проверяем что пир не существует
 if grep -q "$PUBLIC_KEY" "$AWG_CONFIG" 2>/dev/null; then
     echo -e "${RED}Пир с таким ключом уже существует!${NC}"
+    exit 1
+fi
+
+if grep -q "# $NODE_NAME" "$AWG_CONFIG" 2>/dev/null; then
+    echo -e "${RED}Пир с именем $NODE_NAME уже существует!${NC}"
     exit 1
 fi
 
@@ -49,7 +73,17 @@ EOF
 # Применяем конфиг без перезапуска
 awg syncconf $AWG_INTERFACE <(awg-quick strip $AWG_INTERFACE)
 
-echo -e "${GREEN}Пир $NODE_NAME добавлен!${NC}"
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}  Пир $NODE_NAME добавлен!${NC}"
+echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "AWG IP ноды: ${YELLOW}$AWG_IP${NC}"
-echo -e "Теперь измени адрес ноды в RemnaWave Panel на ${YELLOW}$AWG_IP${NC}"
+echo ""
+echo -e "${YELLOW}Следующий шаг:${NC}"
+echo -e "В RemnaWave Panel измени адрес ноды на ${GREEN}$AWG_IP${NC}"
+echo ""
+echo -e "Проверка: ${YELLOW}awg show${NC}"
+echo ""
+
+# Показываем статус
+awg show
