@@ -7,6 +7,8 @@
 # Использование: ./install-promtail.sh <node-name>
 # Пример: ./install-promtail.sh hop-ya-ru
 # ===========================================
+# v2.1 - проверка и установка logrotate
+# ===========================================
 
 set -e
 
@@ -21,7 +23,7 @@ NC='\033[0m'
 
 echo ""
 echo "========================================"
-echo "  Promtail Installer for RemnaWave"
+echo "  Promtail Installer for RemnaWave v2.1"
 echo "========================================"
 echo ""
 
@@ -52,6 +54,22 @@ else
     echo "Сначала настрой AWG на этой ноде."
     echo "Проверь: wg show"
     exit 1
+fi
+
+# Проверка и установка logrotate
+echo ""
+echo "🔍 Проверка logrotate..."
+if command -v logrotate &> /dev/null; then
+    echo -e "${GREEN}✅ Logrotate установлен${NC}"
+else
+    echo -e "${YELLOW}⚠️  Logrotate не найден, устанавливаем...${NC}"
+    apt install -y logrotate
+    if command -v logrotate &> /dev/null; then
+        echo -e "${GREEN}✅ Logrotate установлен${NC}"
+    else
+        echo -e "${RED}❌ Не удалось установить logrotate${NC}"
+        echo "   Попробуй: apt update && apt install -y logrotate"
+    fi
 fi
 
 # Поиск директории remnanode
@@ -160,6 +178,24 @@ EOF
 
 echo -e "${GREEN}✅ promtail-config.yaml создан${NC}"
 
+# Настройка ротации логов
+echo "📝 Настройка ротации логов..."
+
+cat > /etc/logrotate.d/xray-logs << 'EOF'
+/var/lib/docker/volumes/*xray-logs*/_data/*.log {
+    daily
+    rotate 7
+    size 50M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+
+echo -e "${GREEN}✅ Ротация логов настроена (7 дней, макс 50MB)${NC}"
+
 # Перезапуск контейнеров
 echo ""
 echo "🔄 Перезапуск контейнеров..."
@@ -196,6 +232,13 @@ else
     ERRORS=$((ERRORS + 1))
 fi
 
+# Проверка logrotate конфига
+if [ -f /etc/logrotate.d/xray-logs ]; then
+    echo -e "${GREEN}✅ Logrotate конфиг создан${NC}"
+else
+    echo -e "${YELLOW}⚠️  Logrotate конфиг не создан${NC}"
+fi
+
 # Проверка соединения с VictoriaLogs
 sleep 2
 if ss -tnp 2>/dev/null | grep -q "10.10.0.1:9428"; then
@@ -214,10 +257,16 @@ if [ $ERRORS -eq 0 ]; then
     echo ""
     echo "Логи ноды '$NODE_NAME' отправляются на VictoriaLogs"
     echo ""
+    echo "Настройки:"
+    echo "  - Логи хранятся локально: 7 дней"
+    echo "  - Логи в VictoriaLogs: 30 дней"
+    echo "  - Ротация при размере: 50MB"
+    echo ""
     echo "Полезные команды:"
-    echo "  docker logs promtail --tail 20    # Логи Promtail"
-    echo "  docker logs remnanode --tail 20   # Логи Remnanode"
-    echo "  ss -tnp | grep 9428               # Соединение с VictoriaLogs"
+    echo "  docker logs promtail --tail 20       # Логи Promtail"
+    echo "  docker logs remnanode --tail 20      # Логи Remnanode"
+    echo "  ss -tnp | grep 9428                  # Соединение с VictoriaLogs"
+    echo "  logrotate -d /etc/logrotate.d/xray-logs  # Тест ротации"
 else
     echo -e "  ${RED}Установка завершена с ошибками${NC}"
     echo "========================================"
