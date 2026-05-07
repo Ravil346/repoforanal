@@ -817,12 +817,16 @@ setup_security() {
             sleep 2
         fi
         
-        # Определяем имя сервиса
-        if systemctl list-unit-files | grep -q "^ssh.service"; then
+        # Определяем имя сервиса (ssh на Ubuntu, sshd на CentOS/RHEL)
+        if [ -f /lib/systemd/system/ssh.service ] || systemctl cat ssh.service &>/dev/null; then
             SSH_SERVICE="ssh"
-        else
+        elif [ -f /lib/systemd/system/sshd.service ] || systemctl cat sshd.service &>/dev/null; then
             SSH_SERVICE="sshd"
+        else
+            log_error "SSH сервис не найден (ни ssh.service, ни sshd.service)!"
+            exit 1
         fi
+        log_info "SSH сервис: ${SSH_SERVICE}.service"
         
         # Перезапускаем SSH
         systemctl stop $SSH_SERVICE 2>/dev/null || true
