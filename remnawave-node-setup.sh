@@ -682,21 +682,49 @@ install_docker() {
     fi
     
     log_info "Установка Docker (официальный метод)..."
-    
+
     # Официальный метод установки из документации RemnaWave
-    curl -fsSL https://get.docker.com | sh
-    
-    # Запускаем
-    systemctl enable docker
-    systemctl start docker
-    
-    # Проверяем
-    if command -v docker &> /dev/null; then
-        log_ok "Docker установлен: $(docker --version)"
-    else
-        log_error "Не удалось установить Docker!"
+    if ! curl -fsSL https://get.docker.com | sh; then
+        log_error "get.docker.com installer завершился с ошибкой"
         exit 1
     fi
+
+    # Запускаем
+    systemctl enable docker || log_warn "systemctl enable docker вернул ошибку"
+    systemctl start docker || true
+
+    # Проверяем сначала бинарник
+    if ! command -v docker &> /dev/null; then
+        log_error "Не удалось установить Docker (бинарник отсутствует)!"
+        exit 1
+    fi
+
+    # Проверяем что daemon реально запущен (главное условие для compose)
+    sleep 2
+    if ! systemctl is-active --quiet docker; then
+        log_error "Docker daemon НЕ запустился (docker.service не active)"
+        echo ""
+        echo -e "${RED}--- systemctl status docker.service ---${NC}"
+        systemctl status docker.service --no-pager -l || true
+        echo ""
+        echo -e "${RED}--- journalctl -xeu docker.service (хвост) ---${NC}"
+        journalctl -xeu docker.service --no-pager 2>/dev/null | tail -50 || true
+        echo ""
+        echo -e "${YELLOW}Типовые причины:${NC}"
+        echo "  • битый /etc/docker/daemon.json"
+        echo "  • остатки старого containerd: /etc/containerd/config.toml"
+        echo "  • конфликт iptables-nft / legacy"
+        echo "  • остатки прежней инсталляции в /var/lib/docker"
+        exit 1
+    fi
+
+    # Финальная sanity-проверка через сам docker CLI
+    if ! docker info &>/dev/null; then
+        log_error "docker info не работает — daemon недоступен через сокет"
+        exit 1
+    fi
+
+    log_ok "Docker установлен и работает: $(docker --version)"
 }
 
 # ============================================================================
